@@ -221,7 +221,11 @@ class Dataset:
             new['pi'] = torch.mean(omega, axis=1)
             new['mu.x'] = torch.matmul(omega, self.elems['b'])/self.naccounts
             new['Cov.x'] = torch.matmul(omega, self.elems['a'])/self.naccounts
-
+            
+            for c in range(nclusters):
+                new['Cov.x'][c,...] = torch.log(new['Cov.x'][c,...]*new['pi'][c]/ (torch.outer(new['mu.x'][c,],new['mu.x'][c,])) )
+                new['mu.x'][c,...] = torch.log(new['mu.x'][c,...]/new['pi'][c]) - torch.diag(new['Cov.x'][c,...])/2
+                
             if self.convergence(new, log_likelihood, reltol, abstol):
                 break
 
