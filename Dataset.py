@@ -41,7 +41,7 @@ class Dataset:
         self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def read_data(self, dataset_path):
-        field_types = [('accountNumbers', int),
+        field_types = [('accountNumber', int),
                        ('timeStamps', float),
                        ('days', int)]
         process = np.empty(self.naccounts * self.mdays, dtype=object)
@@ -51,11 +51,11 @@ class Dataset:
         with open(dataset_path) as f:
             for row in csv.DictReader(f):
                 row.update((key, conversion(row[key])) for key, conversion in field_types)
-                if row['accountNumbers'] in self.accounts:
-                    id = self.accounts[row['accountNumbers']]
+                if row['accountNumber'] in self.accounts:
+                    id = self.accounts[row['accountNumber']]
                 else:
                     id = i
-                    self.accounts[row['accountNumbers']] = id
+                    self.accounts[row['accountNumber']] = id
                     i += 1
                 process[id, row['days']-1].append(row['timeStamps'])
 
@@ -66,9 +66,9 @@ class Dataset:
         if kernel == "gaussian":
             return norm.cdf(q,mean,sd)
 
-    def dkernel(self, t, kernel = "gaussian", mean = 0, sd = math.sqrt(0.2)):
+    def dkernel(self, t, bwd, kernel = "gaussian", mean = 0, sd = math.sqrt(0.2)):
         if kernel == "gaussian":
-            return norm.pdf(t,mean,sd)
+            return norm.pdf(t/bwd,mean,sd)/bwd
 
 
     def process_multilevel(self, lbd = 0, ubd = 1, bwd = 0.1, ngrids = 100):
@@ -76,11 +76,10 @@ class Dataset:
         grids = np.array([x*l+lbd for x in range(ngrids+1)])
         grids_mid = np.array([x*l+l/2+lbd for x in range(ngrids)])
 
-        A = np.zeros(ngrids,ngrids)
-        B = np.zeros(ngrids,ngrids)
-        C = np.zeros(ngrids,ngrids)
-        #D = np.zeros(ngrids,ngrids)
-        A2 = np.zeros(ngrids,ngrids)
+        A = np.zeros((ngrids,ngrids))
+        B = np.zeros((ngrids,ngrids))
+        C = np.zeros((ngrids,ngrids))
+        A2 = np.zeros((ngrids,ngrids))
 
         edge = self.pkernel((grids_mid-lbd)/bwd) - self.pkernel((grids_mid-ubd)/bwd)
         edge2 = np.outer(edge, edge)
@@ -95,16 +94,16 @@ class Dataset:
             for j in range(self.mdays):
                 process = self.Process[i,j]
                 if process:
-                    tmp = np.subtract.outer(process, grids_mid)
+                    tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
                     tmp1 = np.sum(tmp, axis=0)
                     tmp2 = np.outer(tmp1, tmp1)
                     A2 += tmp2
                     A += tmp2 - np.matmul(tmp.T, tmp)
 
         for i in range(self.naccounts):
-            process = list(np.concatenate(self.Process[0,]).flat)
+            process = list(np.concatenate(self.Process[i,]).flat)
             if process:
-                tmp = np.subtract.outer(process, grids_mid)
+                tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
                 tmp1 = np.sum(tmp, axis=0)
                 tmp2 = np.outer(tmp1, tmp1)
                 B += tmp2
@@ -121,9 +120,9 @@ class Dataset:
         B -= A2
 
         for j in range(self.mdays):
-            process = list(np.concatenate(self.Process[:,0]).flat)
+            process = list(np.concatenate(self.Process[:,j]).flat)
             if process:
-                tmp = np.subtract.outer(process, grids_mid)
+                tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
                 tmp1 = np.sum(tmp, axis=0)
                 tmp2 = np.outer(tmp1, tmp1)
                 C += tmp2
@@ -131,7 +130,7 @@ class Dataset:
         C -= A2
 
         process = list(np.concatenate(list(np.concatenate(self.Process).flat)).flat)
-        tmp = np.subtract.outer(process, grids_mid)
+        tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
         tmp1 = np.sum(tmp, axis=0)
         tmp2 = np.outer(tmp1, tmp1)
 
@@ -182,7 +181,8 @@ class Dataset:
 
     def convergence(self, new, log_likelihood, reltol, abstol):
         delta1 = 0
-        for key in new.keys():
+        selected_keys = ('mu.x', 'Cov.x')
+        for key in selected_keys:
             delta1 = max(delta1, torch.max(torch.abs(new[key]-self.paras[key])))
         if len(log_likelihood) > 1:
             delta2 = abs((log_likelihood[-2]-log_likelihood[-1])/log_likelihood[-2])
@@ -198,9 +198,12 @@ class Dataset:
         omega = random.choices(range(nclusters), k=self.naccounts)
         omega = np.array(omega)
         for c in range(nclusters):
-            ids = np.where(omega == c)
+            ids = np.where(omega == c)[0]
             self.paras['mu.x'][c,...] = torch.sum(self.elems['b'].index_select(0, torch.tensor(ids)), axis=0)
             self.paras['Cov.x'][c,...] = torch.sum(self.elems['a'].index_select(0, torch.tensor(ids)), axis=0)
+
+            self.paras['Cov.x'][c,...] = torch.log(self.paras['Cov.x'][c,...]*self.paras['pi'][c]/ (torch.outer(self.paras['mu.x'][c,],self.paras['mu.x'][c,])) )
+            self.paras['mu.x'][c,...] = torch.log(self.paras['mu.x'][c,...]/self.paras['pi'][c]) - torch.diag(self.paras['Cov.x'][c,...])/2
 
 
     def MSMPP(self, nclusters, nsampling = 2000, maxIter = 50, ngrids = 100, reltol = 10**-4, abstol = 10**-2):
@@ -221,17 +224,17 @@ class Dataset:
             new['pi'] = torch.mean(omega, axis=1)
             new['mu.x'] = torch.matmul(omega, self.elems['b'])/self.naccounts
             new['Cov.x'] = torch.matmul(omega, self.elems['a'])/self.naccounts
-            
+
             for c in range(nclusters):
                 new['Cov.x'][c,...] = torch.log(new['Cov.x'][c,...]*new['pi'][c]/ (torch.outer(new['mu.x'][c,],new['mu.x'][c,])) )
                 new['mu.x'][c,...] = torch.log(new['mu.x'][c,...]/new['pi'][c]) - torch.diag(new['Cov.x'][c,...])/2
-                
+
             if self.convergence(new, log_likelihood, reltol, abstol):
                 break
 
             self.paras = copy.deepcopy(new)
 
-        return id
+        return id, log_likelihood[-1]
 
 
 
