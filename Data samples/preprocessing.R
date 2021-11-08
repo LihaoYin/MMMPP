@@ -15,4 +15,4 @@ for(i in 1:nrow(file)){
 }
 
 file = data.frame(accountNumber=file$accountNumber, timeStamps=timeStamps, days=days)
-write.csv(file, file = "dataset.csv")
+write.csv(file, file = "dataset.csv", row.names = FALSE)
