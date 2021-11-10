@@ -20,13 +20,14 @@ def fpca(X, l, thres = 0.01, pmax = 20):
 
 def cov_from_eig(values, vectors):
     Q = vectors
-    R = np.linalg.inv(Q)
+    R = Q.T
     L = np.diag(values)
     return Q.dot(L).dot(R)
 
 class Dataset:
-    def __init__(self, dataset_path, naccounts, model = 'single_level', mdays = 1):
-        self.naccounts = naccounts
+    def __init__(self, dataset_path, label_path, model = 'single_level', mdays = 1):
+        self.labels = {}
+        self.naccounts = self.read_labels(label_path)
         self.mdays = mdays
         self.accounts = {}
         self.Process = self.read_data(dataset_path)
@@ -39,6 +40,17 @@ class Dataset:
         self.ES_paras = {}
 
         self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def read_labels(self, label_path):
+        field_types = [('accountNumber', int),
+                       ('label', int)]
+        naccounts = 0
+        with open(label_path) as f:
+            for row in csv.DictReader(f):
+                row.update((key, conversion(row[key])) for key, conversion in field_types)
+                self.labels[row['accountNumber']] = row['label']
+                naccounts += 1
+        return naccounts
 
     def read_data(self, dataset_path):
         field_types = [('accountNumber', int),
@@ -102,20 +114,20 @@ class Dataset:
 
         for i in range(self.naccounts):
             process = list(np.concatenate(self.Process[i,]).flat)
+            tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
+            tmp1 = np.sum(tmp, axis=0)
+            tmp2 = np.outer(tmp1, tmp1)
             if process:
-                tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
-                tmp1 = np.sum(tmp, axis=0)
-                tmp2 = np.outer(tmp1, tmp1)
                 B += tmp2
 
-                tmp2 -= np.matmul(tmp.T, tmp)
-                self.elems['a'][i,:,:] = torch.tensor(tmp2/edge2)
-                self.elems['b'][i,:] = torch.tensor(tmp1/edge/self.naccounts)
-                ct = np.histogram(process, bins=grids)[0] + 1
-                v = (ubd-lbd)/ngrids/ct
-                self.elems['y'][i,:] = torch.tensor((ct-1)/v)
-                self.elems['v'][i,:] = torch.tensor(v)
-                self.elems['ct'][i,:] = torch.tensor(ct)
+            tmp2 -= np.matmul(tmp.T, tmp)
+            self.elems['a'][i,:,:] = torch.tensor(tmp2/edge2)
+            self.elems['b'][i,:] = torch.tensor(tmp1/edge/self.naccounts)
+            ct = np.histogram(process, bins=grids)[0] + 1
+            v = (ubd-lbd)/ngrids/ct
+            self.elems['y'][i,:] = torch.tensor((ct-1)/v)
+            self.elems['v'][i,:] = torch.tensor(v)
+            self.elems['ct'][i,:] = torch.tensor(ct)
 
         B -= A2
 
@@ -167,11 +179,11 @@ class Dataset:
             process = list(np.concatenate(self.Process[0,]).flat)
             if not process:
                 continue
-            tmp = np.subtract.outer(process, grids_mid)
+            tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
             tmp1 = np.sum(tmp, axis=0)
             tmp2 = np.outer(tmp1, tmp1)
             tmp2 = tmp2 - np.matmul(tmp.T, tmp)
-            self.elems['a'][i,:,:] = torch.tensor(tmp2/edge2)
+            self.elems['a'][i,:,:] = torch.tensor(tmp2/edge2/self.naccounts)
             self.elems['b'][i,:] = torch.tensor(tmp1/edge/self.naccounts)
             ct = np.histogram(process, bins=grids)[0] + 1
             v = (ubd-lbd)/ngrids/ct
@@ -235,6 +247,8 @@ class Dataset:
             self.paras = copy.deepcopy(new)
 
         return id, log_likelihood[-1]
+
+
 
 
 
