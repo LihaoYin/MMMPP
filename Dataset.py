@@ -25,9 +25,12 @@ def cov_from_eig(values, vectors):
     return Q.dot(L).dot(R)
 
 class Dataset:
-    def __init__(self, dataset_path, label_path, model = 'single_level', mdays = 1):
+    def __init__(self, dataset_path, label_path, model = 'single_level', naccounts = 0, mdays = 1):
         self.labels = {}
-        self.naccounts = self.read_labels(label_path)
+        if label_path:
+            self.naccounts = self.read_labels(label_path)
+        else:
+            self.naccounts = naccounts
         self.mdays = mdays
         self.accounts = {}
         self.Process = self.read_data(dataset_path)
@@ -247,16 +250,3 @@ class Dataset:
             self.paras = copy.deepcopy(new)
 
         return id, log_likelihood[-1]
-
-
-
-
-
-
-
-
-
-
-
-
-
