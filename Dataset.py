@@ -25,7 +25,7 @@ def cov_from_eig(values, vectors):
     return Q.dot(L).dot(R)
 
 class Dataset:
-    def __init__(self, dataset_path, label_path, model = 'single_level', naccounts = 0, mdays = 1):
+    def __init__(self, dataset_path, label_path = '', model = 'single_level', naccounts = 0, mdays = 1):
         self.labels = {}
         if label_path:
             self.naccounts = self.read_labels(label_path)
@@ -40,7 +40,6 @@ class Dataset:
             self.process_multilevel()
         if model == 'single_level':
             self.process_singlelevel()
-        self.ES_paras = {}
 
         self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -73,6 +72,7 @@ class Dataset:
                     self.accounts[row['accountNumber']] = id
                     i += 1
                 process[id, row['days']-1].append(row['timeStamps'])
+
 
 
         return process
@@ -180,8 +180,6 @@ class Dataset:
         self.elems['ct'] = torch.empty(self.naccounts,ngrids)
         for i in range(self.naccounts):
             process = list(np.concatenate(self.Process[0,]).flat)
-            if not process:
-                continue
             tmp = self.dkernel(np.subtract.outer(process, grids_mid), bwd)
             tmp1 = np.sum(tmp, axis=0)
             tmp2 = np.outer(tmp1, tmp1)
@@ -227,18 +225,19 @@ class Dataset:
         for iter in range(maxIter):
             X = torch.empty(nclusters, nsampling, ngrids)
             for c in range(nclusters):
-                values, vectors = fpca(self.paras['Cov.x'], l)
+                values, vectors = fpca(self.paras['Cov.x'][c,...], l)
                 xi_x = torch.randn(len(values), nsampling) * values[:,None]
-                X[c,...] = (torch.matmul(vectors, xi_x)).T + self.paras['mu.x'][c,:][:,None]
-            f = np.matmul(X, (self.elems['v']*self.elems['y']).T) - np.matmul(torch.exp(X), (self.elems['v']*self.elems['ct']).T)
+                X[c,...] = (torch.matmul(torch.tensor(vectors), xi_x) + self.paras['mu.x'][c,:][:,None]).T
+            f = torch.matmul(X, (self.elems['v']*self.elems['y']).T) - torch.matmul(torch.exp(X), (self.elems['v']*self.elems['ct']).T)
             f_max = torch.amax(f,dim=(0,1))
             omega = torch.mean(torch.exp(f - f_max[None,None,:]),axis=1) * self.paras['pi'][:,None]
             log_likelihood.append( torch.sum(torch.log(torch.sum(omega,axis=0)) + f_max) )
             omega = omega - torch.log(torch.sum(omega,axis=0))[None,:]
             id = torch.argmax(omega, axis=0)
+            omega = omega/torch.sum(omega,axis=0)[None,:]
             new['pi'] = torch.mean(omega, axis=1)
-            new['mu.x'] = torch.matmul(omega, self.elems['b'])/self.naccounts
-            new['Cov.x'] = torch.matmul(omega, self.elems['a'])/self.naccounts
+            new['mu.x'] = torch.matmul(omega.float(), self.elems['b'])
+            new['Cov.x'] = torch.matmul(self.elems['a'].permute(1,2,0),omega.T.float()).permute(2,0,1)
 
             for c in range(nclusters):
                 new['Cov.x'][c,...] = torch.log(new['Cov.x'][c,...]*new['pi'][c]/ (torch.outer(new['mu.x'][c,],new['mu.x'][c,])) )
