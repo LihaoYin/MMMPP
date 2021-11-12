@@ -13,7 +13,7 @@ Structured point process data harvested from various platforms poses new chal- l
 
 ## Typical applications
 
-## Implementation of the code
+## Code Implementation
 
 ### Learning the clusters
 
