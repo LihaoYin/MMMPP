@@ -21,7 +21,8 @@ if __name__ == "__main__":
         label_path = opt.label_path,
         model = opt.model,
         naccounts = opt.naccounts,
-        mdays = opt.mdays
+        mdays = opt.mdays,
+        event_types = opt.event_type
     )
 
     nclusters = 2
