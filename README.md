@@ -21,8 +21,10 @@ Structured point process data harvested from various platforms poses new chal- l
 $ python3 main.py  --dataset_path   dataset_path   \
                    --label_path     label_path     \ 
                    --model          model          \
-                   --nacounts      naacounts      \
+                   --nacounts       naacounts      \
                    --mdays          mdays          \
                    --event_types    event_types    \
                    --time_slot      time_slot      \
+                   --nclusters      nclusters      \
+                   --bwd            bwd            \
 ```
