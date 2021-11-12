@@ -16,6 +16,8 @@ Structured point process data harvested from various platforms poses new chal- l
 ## Implementation of the code
 
 ### Learning the clusters
+
+```
 $ python3 main.py  --dataset_path   dataset_path   \
                    --label_path     label_path     \ 
                    --model          model          \
@@ -23,3 +25,4 @@ $ python3 main.py  --dataset_path   dataset_path   \
                    --mdays          mdays          \
                    --event_types    event_types    \
                    --time_slot      time_slot      \
+```
