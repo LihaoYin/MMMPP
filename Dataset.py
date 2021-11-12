@@ -25,13 +25,14 @@ def cov_from_eig(values, vectors):
     return Q.dot(L).dot(R)
 
 class Dataset:
-    def __init__(self, dataset_path, label_path = '', model = 'single_level', naccounts = 0, mdays = 1):
+    def __init__(self, dataset_path, label_path = '', model = 'single_level', naccounts = 0, mdays = 1, event_types = 1):
         self.labels = {}
         if label_path:
             self.naccounts = self.read_labels(label_path)
         else:
             self.naccounts = naccounts
         self.mdays = mdays
+        self.event_types = event_types
         self.accounts = {}
         self.Process = self.read_data(dataset_path)
         self.paras = {}
@@ -41,7 +42,7 @@ class Dataset:
         if model == 'single_level':
             self.process_singlelevel()
 
-        self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def read_labels(self, label_path):
         field_types = [('accountNumber', int),
@@ -57,7 +58,8 @@ class Dataset:
     def read_data(self, dataset_path):
         field_types = [('accountNumber', int),
                        ('timeStamps', float),
-                       ('days', int)]
+                       ('days', int),
+                       ('category', int)]
         process = np.empty(self.naccounts * self.mdays, dtype=object)
         process[...] = [[] for _ in range(self.naccounts * self.mdays)]
         process.shape = (self.naccounts, self.mdays)
@@ -248,4 +250,37 @@ class Dataset:
 
             self.paras = copy.deepcopy(new)
 
+        return id, log_likelihood[-1]
+
+
+    def MSMPP_GPU(self, nclusters, nsampling = 2000, maxIter = 50, ngrids = 100, reltol = 10**-4, abstol = 10**-2):
+        new = copy.deepcopy(self.paras)
+        log_likelihood = []
+        for iter in range(maxIter):
+            X = torch.empty(nclusters, nsampling, ngrids).to(self.device)
+            for c in range(nclusters):
+                values, vectors = fpca(self.paras['Cov.x'][c,...], l)
+                xi_x = torch.randn(len(values), nsampling) * values[:,None]
+                X[c,...] = (torch.matmul(torch.tensor(vectors), xi_x) + self.paras['mu.x'][c,:][:,None]).T
+            f = torch.matmul(X, (self.elems['v']*self.elems['y']).T) - torch.matmul(torch.exp(X), (self.elems['v']*self.elems['ct']).T)
+            f_max = torch.amax(f,dim=(0,1))
+            omega = torch.mean(torch.exp(f - f_max[None,None,:]),axis=1) * self.paras['pi'][:,None]
+            log_likelihood.append( torch.sum(torch.log(torch.sum(omega,axis=0)) + f_max) )
+            omega = omega - torch.log(torch.sum(omega,axis=0))[None,:]
+            id = torch.argmax(omega, axis=0)
+            omega = omega/torch.sum(omega,axis=0)[None,:]
+            new['pi'] = torch.mean(omega, axis=1)
+            new['mu.x'] = torch.matmul(omega.float(), self.elems['b'])
+            new['Cov.x'] = torch.matmul(self.elems['a'].permute(1,2,0),omega.T.float()).permute(2,0,1)
+
+            for c in range(nclusters):
+                new['Cov.x'][c,...] = torch.log(new['Cov.x'][c,...]*new['pi'][c]/ (torch.outer(new['mu.x'][c,],new['mu.x'][c,])) )
+                new['mu.x'][c,...] = torch.log(new['mu.x'][c,...]/new['pi'][c]) - torch.diag(new['Cov.x'][c,...])/2
+
+            if self.convergence(new, log_likelihood, reltol, abstol):
+                break
+
+            self.paras = copy.deepcopy(new)
+            torch.cuda.empty_cache()
+            
         return id, log_likelihood[-1]
