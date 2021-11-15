@@ -1,3 +1,4 @@
+##################Chase Credit Card Dataset
 path = paste(getwd(), "/transactions.csv",sep="")
 file = read.csv(path)
 
@@ -14,5 +15,5 @@ for(i in 1:nrow(file)){
   timeStamps = c(timeStamps, as.integer(time[1])/24+as.integer(time[2])/1440+as.integer(time[3])/86400)
 }
 
-file = data.frame(accountNumber=file$accountNumber, timeStamps=timeStamps, days=days)
+file = data.frame(accountNumber=file$accountNumber, timeStamps=timeStamps, days=days, category=rep(1,length(days))
 write.csv(file, file = "dataset.csv", row.names = FALSE)
