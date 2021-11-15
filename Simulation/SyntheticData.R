@@ -145,7 +145,7 @@ for(c in 1:C){
 }
 
 dataset = data.frame(accountNumber=id, timeStamps=timestamp, days=days, category=types)
-write.csv(dataset, file = "dataset.csv")
+write.csv(dataset, file = "dataset.csv", row.names = FALSE)
 
 labelset <- data.frame(accountNumber=1:(C*n), label=labels)
-write.csv(labelset, file = "labels.csv")
+write.csv(labelset, file = "labels.csv", row.names = FALSE)
